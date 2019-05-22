@@ -1,6 +1,7 @@
 package com.learnium.RNDeviceInfo;
 
 import android.Manifest;
+import android.app.Activity;
 import android.app.KeyguardManager;
 import android.app.UiModeManager;
 import android.bluetooth.BluetoothAdapter;
@@ -20,6 +21,7 @@ import android.os.Environment;
 import android.os.StatFs;
 import android.os.BatteryManager;
 import android.provider.Settings;
+import android.support.v4.app.ActivityCompat;
 import android.view.WindowManager;
 import android.webkit.WebSettings;
 import android.telephony.TelephonyManager;
@@ -39,6 +41,8 @@ import com.facebook.react.bridge.Callback;
 import com.facebook.react.bridge.Promise;
 import com.facebook.react.bridge.WritableArray;
 import com.facebook.react.bridge.WritableMap;
+import com.facebook.react.modules.core.PermissionAwareActivity;
+import com.facebook.react.modules.core.PermissionListener;
 
 import java.util.Collections;
 import java.util.HashMap;
@@ -50,6 +54,7 @@ import java.util.TimeZone;
 import java.lang.Runtime;
 import java.net.NetworkInterface;
 import java.math.BigInteger;
+import java.util.concurrent.Callable;
 
 import javax.annotation.Nullable;
 
@@ -60,6 +65,10 @@ public class RNDeviceModule extends ReactContextBaseJavaModule {
   WifiInfo wifiInfo;
 
   DeviceType deviceType;
+
+  private static final String E_ACTIVITY_DOES_NOT_EXIST = "E_ACTIVITY_DOES_NOT_EXIST";
+  private static final String E_CALLBACK_ERROR = "E_CALLBACK_ERROR";
+  private static final String E_PERMISSIONS_MISSING = "E_PERMISSION_MISSING";
 
   public RNDeviceModule(ReactApplicationContext reactContext) {
     super(reactContext);
@@ -204,7 +213,7 @@ public class RNDeviceModule extends ReactContextBaseJavaModule {
     String ipAddress = Formatter.formatIpAddress(getWifiInfo().getIpAddress());
     p.resolve(ipAddress);
   }
- 
+
   @ReactMethod
   public void getCameraPresence(Promise p) {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
@@ -275,24 +284,24 @@ public class RNDeviceModule extends ReactContextBaseJavaModule {
 
   @ReactMethod
   public BigInteger getFreeDiskStorage() {
-    try {
-      StatFs external = new StatFs(Environment.getExternalStorageDirectory().getAbsolutePath());
-      long availableBlocks;
-      long blockSize;
-
-      if (Build.VERSION.SDK_INT < Build.VERSION_CODES.JELLY_BEAN_MR2) {
-        availableBlocks = external.getAvailableBlocks();
-        blockSize = external.getBlockSize();
-      } else {
-        availableBlocks = external.getAvailableBlocksLong();
-        blockSize = external.getBlockSizeLong();
+      try {
+        StatFs external = new StatFs(Environment.getExternalStorageDirectory().getAbsolutePath());
+        long availableBlocks;
+        long blockSize;
+  
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.JELLY_BEAN_MR2) {
+          availableBlocks = external.getAvailableBlocks();
+          blockSize = external.getBlockSize();
+        } else {
+          availableBlocks = external.getAvailableBlocksLong();
+          blockSize = external.getBlockSizeLong();
+        }
+  
+        return BigInteger.valueOf(availableBlocks).multiply(BigInteger.valueOf(blockSize));
+      } catch (Exception e) {
+        e.printStackTrace();
       }
-
-      return BigInteger.valueOf(availableBlocks).multiply(BigInteger.valueOf(blockSize));
-    } catch (Exception e) {
-      e.printStackTrace();
-    }
-    return null;
+      return null;
   }
 
   @ReactMethod
@@ -361,7 +370,7 @@ public class RNDeviceModule extends ReactContextBaseJavaModule {
   @ReactMethod
   public void getSystemAvailableFeatures(Promise p) {
     final FeatureInfo[] featureList = this.reactContext.getApplicationContext().getPackageManager().getSystemAvailableFeatures();
-    
+
     WritableArray promiseArray = Arguments.createArray();
     for (FeatureInfo f : featureList) {
       if (f.name != null) {
@@ -406,6 +415,83 @@ public class RNDeviceModule extends ReactContextBaseJavaModule {
   public String getInstallReferrer() {
     SharedPreferences sharedPref = getReactApplicationContext().getSharedPreferences("react-native-device-info", Context.MODE_PRIVATE);
     return sharedPref.getString("installReferrer", null);
+  }
+
+  @ReactMethod
+  public void getOSerialNumber(final Promise p) {
+    final Activity activity = getCurrentActivity();
+
+    if (activity == null) {
+      p.reject(E_ACTIVITY_DOES_NOT_EXIST, "Activity doesn't exist");
+      return;
+    }
+
+    permissionsCheck(activity, p, Collections.singletonList(Manifest.permission.READ_PHONE_STATE), new Callable<Void>() {
+      @Override
+      public Void call() {
+        String serialNumber;
+        try{
+          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            serialNumber = Build.getSerial();
+          } else {
+            serialNumber = Build.SERIAL;
+          }
+          p.resolve(serialNumber);
+        }catch (Exception e) {
+          e.printStackTrace();
+          p.reject(E_CALLBACK_ERROR, "Unknown error", e);
+        }
+        return null;
+      }
+    });
+  }
+
+  private void permissionsCheck(final Activity activity, final Promise promise, final List<String> requiredPermissions, final Callable<Void> callback) {
+
+    List<String> missingPermissions = new ArrayList<>();
+
+    for (String permission : requiredPermissions) {
+      int status = ActivityCompat.checkSelfPermission(activity, permission);
+      if (status != PackageManager.PERMISSION_GRANTED) {
+        missingPermissions.add(permission);
+      }
+    }
+
+    if (!missingPermissions.isEmpty()) {
+
+      ((PermissionAwareActivity) activity).requestPermissions(missingPermissions.toArray(new String[missingPermissions.size()]), 1, new PermissionListener() {
+
+        @Override
+        public boolean onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+          if (requestCode == 1) {
+
+            for (int grantResult : grantResults) {
+              if (grantResult == PackageManager.PERMISSION_DENIED) {
+                promise.reject(E_PERMISSIONS_MISSING, "Required permission missing");
+                return true;
+              }
+            }
+
+            try {
+              callback.call();
+            } catch (Exception e) {
+              promise.reject(E_CALLBACK_ERROR, "Unknown error", e);
+            }
+          }
+
+          return true;
+        }
+      });
+
+      return;
+    }
+
+    // all permissions granted
+    try {
+      callback.call();
+    } catch (Exception e) {
+      promise.reject(E_CALLBACK_ERROR, "Unknown error", e);
+    }
   }
 
   @Override

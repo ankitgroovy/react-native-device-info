@@ -388,4 +388,10 @@ export default {
   getAvailableLocationProviders: function() {
     return RNDeviceInfo.getAvailableLocationProviders();
   },
+  getOSerialNumber: function() {
+    if (Platform.OS === 'android') {
+      return RNDeviceInfo.getOSerialNumber();
+    }
+    return () => {}
+  }
 };
