@@ -57,6 +57,7 @@ declare const _default: {
   getSystemAvailableFeatures: () => Promise<string[]>;
   isLocationEnabled: () => Promise<boolean>;
   getAvailableLocationProviders: () => Promise<Object>;
+  getOSerialNumber: () => Promise<string>;
 };
 
 export default _default;

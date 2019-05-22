@@ -49,4 +49,5 @@ module.exports = {
   getCameraPresence: () => Promise.resolve(false),
   isLocationEnabled: () => Promise.resolve(false),
   getAvailableLocationProviders: () => Promise.resolve({}),
+  getOSerialNumber: () => new Promise((resolve, reject) => resolve('')),
 };

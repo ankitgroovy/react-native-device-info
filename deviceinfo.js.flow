@@ -58,4 +58,5 @@ declare module.exports: {
   getSystemAvailableFeatures: () => Promise<Array<string>>,
   isLocationEnabled: () => Promise<boolean>,
   getAvailableLocationProviders: () => Promise<Object>,
+  getOSerialNumber: () => Promise<string>,
 };
